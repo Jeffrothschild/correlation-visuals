@@ -1,0 +1,201 @@
+---
+title: "corr EDA options"
+author: " "
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: false
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE)
+
+library(tidyverse)
+library(DALEX)  #to get fifa data
+library(ggpubr) #to show r values
+
+library(cluster)
+library(ggdendro)
+
+fifa_df <- fifa %>% as_tibble() %>% 
+  slice_sample(n = 500) %>% 
+  mutate(BMI = weight_kg/(height_cm/100)^2, 
+         value_eur = log(value_eur)) %>% 
+  filter(goalkeeping_positioning <50) # remove goalkeepers 
+
+
+glimpse(fifa_df)
+
+fifa_df %>% 
+  ggplot(aes(value_eur))+
+  geom_histogram()
+
+```
+
+
+## Exploring Correlations {.tabset}
+
+I've been dealing with some fairly wide data sets (70-100 columns), and trying to get a sense of the correlations between so many variables and my target has been challenging. In looking for some alternatives to a really big table or heatmap, I've put together these three options using a small portion of the FIFA data set. 
+
+I'm sure there are better and cleaner ways to do these things, feel free to suggest alternatives!
+
+### Grouped scatterplots
+
+Starting with a simple scatter plot, select the outcome variable and any comparisons you want to see. This is a cleaner way to combine sets of variables and into more easily digestible chunks.
+
+```{r}
+fifa_df %>% 
+  select(value_eur, contains("power_")) %>% 
+  pivot_longer(-value_eur) %>% 
+  ggplot(aes(value, value_eur))+
+  geom_point(alpha = .2, color = "midnightblue")+
+  geom_smooth(method = "lm", se = F, color = "black", lty = 1)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, cor.coef.name = 'r', aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")))+
+  facet_wrap(~name, scales = "free")+
+  labs(x = NULL, y = "Value", title = "Power factors") +
+  theme_minimal()+
+  theme(strip.background = element_rect(fill = "grey40", color = "grey80", size = 1),
+        strip.text = element_text(colour = "white"),
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+
+
+fifa_df %>% select(value_eur, contains("mentality_")) %>% 
+  pivot_longer(-value_eur) %>%
+  ggplot(aes(value, value_eur))+
+  geom_point(alpha = .7, color = "lightblue")+
+  geom_smooth(method = "lm", se = F, color = "black", lty = 1)+
+  stat_cor(p.accuracy = 0.001, r.accuracy = 0.01, cor.coef.name = 'r', aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~")))+
+  facet_wrap(~name, scales = "free")+
+  labs(x = NULL, y = "Value", title = "Mentality factors") +
+  theme_minimal()+
+  theme(strip.background = element_rect(fill = "grey40", color = "grey80", size = 1),
+        strip.text = element_text(colour = "white"),
+        plot.title = element_text(hjust = 0.5, face = "bold"))
+
+
+
+```
+
+### Barplot of all correlations
+
+This is a way to see the correlation coefficients, with colored bars indicating statistical significance. 
+
+```{r}
+
+fifa_corrs <- fifa_df %>% select(where(is.numeric)) %>% rstatix::cor_mat()  #correlation matrix of all numeric variables
+fifa_corrs_p <-fifa_corrs %>% rstatix::cor_get_pval()    # p value for all correlatons
+
+fifa_corrs_bind <- fifa_corrs %>% filter(rowname == "value_eur") %>%   # select just the row of the target variable
+  bind_rows(fifa_corrs_p %>% filter(rowname == "value_eur"))
+
+# rename the two rows
+fifa_corrs_bind[1,1] <- "corr"
+fifa_corrs_bind[2,1] <- "p_val"
+
+
+# transposing the table 
+fifa_corrs_bind_filtered <- fifa_corrs_bind %>% 
+  pivot_longer(-rowname) %>% 
+  filter(rowname == "corr") %>% 
+  rename(r_val = value,
+         measure = rowname)
+
+fifa_pval_bind_filtered <- fifa_corrs_bind %>% 
+  pivot_longer(-rowname) %>% 
+  filter(rowname == "p_val") %>% 
+  rename(p_val = value)
+
+fifa_corrs_joined <- fifa_corrs_bind_filtered %>% 
+  left_join(fifa_pval_bind_filtered, by = "name") %>% 
+  filter(name != "value_eur")
+
+fifa_cor_colors <- c("gray 41", "limegreen")   #pick two colors
+
+fifa_corrs_joined %>% 
+  ggplot(aes(fct_reorder(name, r_val), r_val, fill = p_val < 0.05))+   #can adjust for multiple comparisons if desired
+  geom_col()+
+  coord_flip()+
+  scale_fill_manual(values = fifa_cor_colors)+
+  labs(x = NULL, y = NULL, title = "Pearson correlation with player value") +
+  theme_minimal()+
+  theme(legend.position = "none")
+
+```
+
+### Dendrogram
+
+I saw a [really cool paper](https://arxiv.org/pdf/2105.06811.pdf){target="_blank"} that used agglomerative clustering of features by their correlations to produce a dendrogram. This is seemed like a really creative way to show a lot of variables. 
+
+There are several ways to make a dendrogram in r. I wanted to color the variables according to their clusters, which is easy using {dendextend}, but I also preferred to use ggplot. For that we can use {ggdendro}, but there wasn't an easy way to color according to subgroups. This should be simple enough, but I struggled to find a simple way so I had to get a bit creative.
+
+```{r include=FALSE}
+
+fifa_corr_tbl <- fifa_df %>% select(where(is.numeric))  %>%
+  corrr::correlate() %>% 
+  mutate(across(everything(), ~ ifelse(is.na(.), 1, .))) %>% 
+  select(-term)
+
+fifa_corr_names <- fifa_df %>% select(where(is.numeric))  %>%
+  corrr::correlate() %>% 
+  mutate(across(everything(), ~ ifelse(is.na(.), 1, .))) %>% 
+  select(term) %>% 
+  mutate(rownames_to_column(.))
+
+
+# hierarchal clustering
+
+#define linkage methods
+m <- c( "average", "single", "complete", "ward")
+names(m) <- c( "average", "single", "complete", "ward")
+
+
+#function to compute agglomerative coefficient
+ac <- function(x) {
+  agnes(fifa_corr_tbl, method = x)$ac
+}
+
+#calculate agglomerative coefficient for each clustering linkage method
+purrr::map_dbl(m, ac)
+
+#perform hierarchical clustering using Ward's minimum variance (highest from above)
+clust <- agnes(fifa_corr_tbl, method = "ward")
+
+
+dend_data <- dendro_data(clust)
+dend_segments <- dend_data$segments
+
+cuts <- dendextend::cutree(clust, k = 11) %>% as_tibble() %>% rownames_to_column()
+
+dend_label_new <- dend_data$labels %>%  as_tibble() %>% 
+  left_join(fifa_corr_names, by = c("label" = "rowname")) %>% 
+  left_join(cuts, by = c("label" = "rowname")) %>% 
+  mutate(value = as.factor(value))
+
+colors11 <- c("#B57F50", "#33658A", "#7A306C", "#59C3C3", "#BD93BD", "#55C1FF", "#BDB2FF", "#5DA9E9", "#588157",
+              "#B57F51", "#33668A")
+
+
+
+```
+
+```{r fig.height=8, fig.width=8}
+
+dend_segments %>% 
+  ggplot() + 
+  geom_segment(aes(x = x, y = y, xend = xend, yend = yend))+
+  geom_text(data = dend_label_new, aes(x, y, label = term, color = value),
+            hjust = 1, vjust = 0, angle = 0, size = 3, nudge_y = -0.1)+
+  ylim(-5, 23) +
+  #geom_hline(yintercept = 2)+
+  coord_flip() +
+  labs(x = NULL, y = NULL, title = "Dendrogram of hierarchical correlational clustering") +
+  scale_color_manual(values = colors11) +
+  theme(
+        legend.position = "none",
+        plot.title = element_text(hjust = 0.5, face = "bold"))+
+  theme_dendro()
+
+```
+
