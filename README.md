@@ -8,4 +8,5 @@ I’ve been dealing with some fairly wide data sets (70-100 columns), and trying
 
 I’m sure there are better and cleaner ways to do these things, feel free to suggest alternatives!
 
+![Dendogram example](https://github.com/Jeffrothschild/correlation-visuals)
 
