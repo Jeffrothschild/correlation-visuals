@@ -8,5 +8,7 @@ I’ve been dealing with some fairly wide data sets (70-100 columns), and trying
 
 I’m sure there are better and cleaner ways to do these things, feel free to suggest alternatives!
 
+<img src= https://github.com/Jeffrothschild/correlation-visuals/blob/master/Example%20corr%20bar%20plot.png width="400" height="600" />
+
 <img src="https://github.com/Jeffrothschild/correlation-visuals/blob/master/Example%20colored%20dendrogram.png" width="600" height="600" />
 
