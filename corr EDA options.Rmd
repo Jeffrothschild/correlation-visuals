@@ -118,7 +118,7 @@ fifa_corrs_joined %>%
   geom_col()+
   coord_flip()+
   scale_fill_manual(values = fifa_cor_colors)+
-  labs(x = NULL, y = NULL, title = "Pearson correlation with player value") +
+  labs(x = NULL, y = NULL, title = "Pearson correlation with player value", subtitle = "Colored bars indicate p < 0.05") +
   theme_minimal()+
   theme(legend.position = "none")
 
